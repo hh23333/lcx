@@ -1,3 +1,5 @@
 .cache/
 .data/
-
+.res/
+.idea/
+ __pycache__/

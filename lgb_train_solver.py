@@ -61,7 +61,8 @@ def lgb_train(X_train1, y_train1, X_test1, sub_user_index):
     a = round(a, 5)
     print(a)
 
-    sub = sub.sort_values(by='label', ascending=False)
-    sub = sub.head(50000)
-    sub = sub[['客户编号', '开户日期', 'label']]
-    sub.to_csv('./res/sub_F12_7.csv', index=False, index_label=False)
+    # sub = sub.sort_values(by='label', ascending=False)
+    # sub = sub.head(50000)
+    sub = sub[['客户编号', 'label']]
+    sub = sub.groupby('客户编号').max().reset_index()
+    sub.to_csv('./res/sub_F12_7.csv', index=False, index_label=False, header=False)

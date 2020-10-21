@@ -59,26 +59,23 @@ def fill_mean(data):
     return data
 
 
-def cate(profile_data,column,m):
+def cate(profile_data, features, m):
     '''
     用于将数据进行聚类，并按客户编号groupby来填充nan值
     :param profile_data: profile数据(train和test一起进行聚类)
-    :param column: 需要进行聚类的列(list)
+    :param features: 需要进行聚类的列,存储的值为数值型的列
     :param m: 聚类的个数
     :return: 聚类后的结果
     '''
-    newname = '_'.join(column+['类别'])
-    x = profile_data.set_index(['客户编号','开户日期','统计日期'])[column].replace('NA',np.nan).dropna()
-    y = np.array(x).reshape(-1,1)
+    newname = '_'.join(features+['类别'])
+    x = profile_data.set_index(['客户编号', '开户日期', '统计日期'])[features].replace('NA', np.nan).dropna()
+    y = np.array(x).reshape(-1, 1)
     km = KMeans(n_clusters=m)
     km.fit(y)
     km.predict(y)
-    z = pd.DataFrame(km.labels_,index=x.index,columns=[newname]).reset_index()
-    mode_cate = z.groupby('客户编号').apply(lambda x:x[newname].mode()).reset_index()
-    mode_cate.rename(columns={0:newname},inplace=True)
-    profile_data_cate = pd.merge(profile_data,z,on=['客户编号','开户日期','统计日期'],how='outer').set_index('客户编号')
-    profile_data_cate[newname].fillna(dict(zip(mode_cate['客户编号'],mode_cate[newname])),inplace=True)
-    profile_data_cate = fill_mode(profile_data_cate, [newname]).reset_index()
+    z = pd.DataFrame(km.labels_, index=x.index, columns=[newname]).reset_index()
+    profile_data = pd.merge(profile_data, z, on=['客户编号', '开户日期', '统计日期'],how='outer')
+    profile_data_cate = fill_mode_group(profile_data, newname)
     return profile_data_cate
 
 
@@ -128,7 +125,7 @@ def clean_profile_data(train_profile_data, test_profile_data):
     # 处理新客户指数
     profile_data['新客户指数'].fillna(0, inplace=True)
     # 处理客户等级
-    profile_data['新客户指数'].fillna(1, inplace=True)
+    profile_data['客户等级'].fillna(1, inplace=True)
     # 处理最近活跃日期 基本无用 极少数有值
     # profile_data['最近活跃日期'].fillna('2015-01', inplace=True)
     # 处理客户关系类型
@@ -165,11 +162,10 @@ def clean_profile_data(train_profile_data, test_profile_data):
 
 
 def get_test_raw_data():
-    profile_data = pd.read_pickle('./cache/test_profile_data.pkl')
-    log_data = pd.read_pickle('./cache/test_log_data.pkl')
-    anchor = profile_data[['客户编号', '开户日期']]
-
-    return profile_data, log_data, anchor
+    test_profile_data = pd.read_pickle('./cache/test_profile_data.pkl')
+    test_log_data = pd.read_pickle('./cache/test_log_data.pkl')
+    anchor = test_profile_data[['客户编号', '开户日期']]
+    return test_profile_data, test_log_data, anchor
 
 
 def get_raw_data_bydate(train_start_date, train_end_date):
@@ -208,19 +204,19 @@ def get_labels(label_date, raw_data_with_label):
     return labels
 
 
-def get_basic_client_account_feat(raw_data, train_end_data):
+def get_basic_client_account_feat(raw_data, train_end_date, set_label='train'):
     '''
     将profile每一关键词转为特征
     :param raw_data:
     :param train_end_data:
     :return:
     '''
-    dump_path = './cache/basic_client_profile.pkl'
+    dump_path = './cache/%s_basic_client_profile_%s.pkl' % (set_label, train_end_date)
     if os.path.exists(dump_path):
         client = pd.read_pickle(dump_path)
     else:
         # client_origin = pd.read_pickle('./cache/train_profile_data.pkl')
-        client_origin = raw_data.drop_duplicates(subset=['客户编号', '开户日期'])
+        client_origin = raw_data.drop_duplicates(subset=['客户编号', '开户日期'], keep='last')
         age_df = pd.get_dummies(client_origin['年龄_类别'], prefix='age')
         gender_df = pd.get_dummies(client_origin['性别'], prefix='gender')
         new_client_index_df = pd.get_dummies(client_origin['新客户指数'], prefix='new_client_index')
@@ -231,19 +227,19 @@ def get_basic_client_account_feat(raw_data, train_end_data):
         birthplace_df = pd.get_dummies(client_origin['出生地信息'], prefix='birthplace')
         client_rel_df = pd.get_dummies(client_origin['客户关系类型'], prefix='client_rel')
         # 加入渠道类型较多，使用该类型中，成交比例作为特征
-        group_join = raw_data[raw_data['统计日期'] < train_end_data].groupby('客户加入渠道')
+        group_join = raw_data[raw_data['统计日期'] < train_end_date].groupby('客户加入的渠道')
         map_ = group_join['标签'].sum()/group_join.size()
         client_join_channel_df = client_origin['客户加入的渠道'].map(map_)
         inner_eval_index_df = pd.get_dummies(client_origin['内部评价指数'], prefix='inner_eval_index')
         # 地区类型较多，使用该类型中，成交比例作为特征
-        group_area_name = raw_data[raw_data['统计日期'] < train_end_data].groupby('地区名称')
+        group_area_name = raw_data[raw_data['统计日期'] < train_end_date].groupby('地区名称')
         map_ = group_area_name['标签'].sum() / group_area_name.size()
         area_name_df = client_origin['地区名称'].map(map_)
         client_seg_df = pd.get_dummies(client_origin['客户分段'], prefix='client_seg')
-        staff_mark_df = pd.get_dummies(client_origin['员工标识'], prefix='staff_mark')
+        staff_mark_df = pd.get_dummies(client_origin['员工标识'].replace('S', 'A'), prefix='staff_mark')
         activity_index_df = pd.get_dummies(client_origin['活跃度指标'], prefix='staff_mark')
         # 按客户编号和开户日期， merge 得到多维特征
-        client = pd.concat([client_origin['客户编号', '开户日期'],
+        client = pd.concat([client_origin[['客户编号', '开户日期']],
                             age_df,
                             gender_df,
                             new_client_index_df,
@@ -270,43 +266,53 @@ def get_history_client_count_feat(train_end_date, raw_date):
     pass
 
 
-def get_client_extra_feat(profile_with_label, train_end_date):
+def get_client_extra_feat(profile_with_label, train_end_date, set_label='train'):
     '''
     用于获取客户的其他特征：是否为新客户，购买频率
     param profile_with_label:
     param train_end_date:训练截止日
     '''
+    dump_path = './cache/%s_client_extra_F_%s.pkl' % (set_label, train_end_date)
+    if os.path.exists(dump_path):
+        client_extra_feat = pd.read_pickle(dump_path)
+    else:
+        client = profile_with_label['客户编号'].drop_duplicates()
+        rate = pd.DataFrame(index=client)
 
-    client = profile_with_label['客户编号'].drop_duplicates()
-    rate = pd.DataFrame(index=client)
+        # 获取客户是否为新客户
+        old = profile_with_label[profile_with_label['统计日期'] < train_end_date]['客户编号'].drop_duplicates()
+        zero = pd.DataFrame(data=0, index=old, columns=['是否为新客户'])
+        client_extra_feat = pd.merge(client, zero.reset_index(), on='客户编号', how='outer')
+        client_extra_feat['是否为新客户'] = client_extra_feat['是否为新客户'].fillna(1)
 
-    # 获取客户是否为新客户
-    old = profile_with_label[profile_with_label['统计日期'] < train_end_date]['客户编号'].drop_duplicates()
-    zero = pd.DataFrame(data=0, index=old, columns=['是否为新客户'])
-    client_extra_feat = pd.merge(client, zero.reset_index(), on='客户编号', how='outer')
-    client_extra_feat['是否为新客户'] = client_extra_feat['是否为新客户'].fillna(1)
+        # 获取客户购买频率
+        train_label = profile_with_label[profile_with_label['统计日期'] < train_end_date]
+        rate['总次数'] = train_label.groupby('客户编号')['标签'].count()
+        rate['购买信贷类产品次数'] = train_label[train_label['标签'] == 1].groupby('客户编号')['标签'].count()
+        rate['购买信贷类产品频率'] = rate['购买信贷类产品次数'] / rate['总次数']
+        rate['购买信贷类产品频率'] = rate['购买信贷类产品频率'].fillna(0)
 
-    # 获取客户购买频率
-    train_label = profile_with_label[profile_with_label['统计日期'] < train_end_date]
-    rate['总次数'] = train_label.groupby('客户编号')['标签'].count()
-    rate['购买信贷类产品次数'] = train_label[train_label['标签'] == 1].groupby('客户编号')['标签'].count()
-    rate['购买信贷类产品频率'] = rate['购买信贷类产品次数'] / rate['总次数']
-    rate['购买信贷类产品频率'] = rate['购买信贷类产品频率'].fillna(0)
-
-    # 按label中的客户号来合并客户的特征
-    client_extra_feat = pd.merge(client_extra_feat, rate['购买信贷类产品频率'].reset_index(), on='客户编号')
+        # 按label中的客户号来合并客户的特征
+        client_extra_feat = pd.merge(client_extra_feat, rate['购买信贷类产品频率'].reset_index(), on='客户编号')
+        pickle.dump(client_extra_feat, open(dump_path, 'wb'))
     return client_extra_feat
 
-def get_log_feat(train_log_data, train_end_date):
-    columns = list(train_log_data.iloc[:,2:-1].columns)
-    train_log_data = train_log_data.sort_values(['客户编号','统计日期'])
-    train_log_feat = pd.DataFrame(index=train_log_data['客户编号'].drop_duplicates(),columns=columns,data=0)
-    for col in columns:
-        x = train_log_data.groupby(['客户编号',col]).tail(1)
-        y = x.pivot(index='客户编号', columns=col, values='统计日期').loc[:,1].fillna('2015-01')
-        train_log_feat[col] = y.apply(lambda x:(pd.to_datetime(train_end_date)-pd.to_datetime(x)).days//30)
-        train_log_feat.rename(columns={col:''.join(['距离最近一次']+[col.replace('是否','')]+['的月数'])})
-    train_log_feat = train_log_feat.fillna(14)
+
+def get_log_feat(train_log_data, train_end_date, set_label='train'):
+    dump_path = './cache/%s_log_F_%s.pkl' % (set_label, train_end_date)
+    if os.path.exists(dump_path):
+        train_log_feat = pd.read_pickle(dump_path)
+    else:
+        columns = list(train_log_data.iloc[:, 2:-1].columns)
+        train_log_data = train_log_data.sort_values(['客户编号', '统计日期'])
+        train_log_feat = pd.DataFrame(index=train_log_data['客户编号'].drop_duplicates(), columns=columns, data=0)
+        for col in columns:
+            x = train_log_data.groupby(['客户编号', col]).tail(1)
+            y = x.pivot(index='客户编号', columns=col, values='统计日期').loc[:, 1].fillna('2015-01')
+            train_log_feat[col] = y.apply(lambda x:(pd.to_datetime(train_end_date)-pd.to_datetime(x)).days//30)
+            train_log_feat.rename(columns={col: ''.join(['距离最近一次']+[col.replace('是否', '')]+['的月数'])})
+        train_log_feat = train_log_feat.fillna(14)
+        pickle.dump(train_log_feat, open(dump_path, 'wb'))
     return train_log_feat
 
 
@@ -317,7 +323,7 @@ def get_train_data(label_date, train_start_date, train_end_date, ):
         labels = pd.read_pickle(dump_path)
     else:
         raw_data_with_label, log_data = get_raw_data_bydate(train_start_date, train_end_date)
-        raw_data_with_label = raw_data_with_label.drop_duplicates(['客户编号', '统计日期', '开户日期'], keep='last')
+        # raw_data_with_label = raw_data_with_label.drop_duplicates(['客户编号', '统计日期', '开户日期'], keep='last')
 
         labels = get_labels(label_date, raw_data_with_label)
         pos_labels = labels[labels['标签'] == 1]
@@ -325,7 +331,7 @@ def get_train_data(label_date, train_start_date, train_end_date, ):
 
         # 特征
         # 统计用户账户的基本特征，以['客户编号', '开户日期'] group
-        client_count_basic_feat = get_basic_client_account_feat(raw_data_with_label)
+        client_count_basic_feat = get_basic_client_account_feat(raw_data_with_label, train_end_date)
         # 以['客户编号'] group 统计用户账户额外的特征
         client_extra_feat = get_client_extra_feat(raw_data_with_label, train_end_date)
         # 可使用历史label的特征], 以['客户编号', '开户日期'] group
@@ -334,8 +340,8 @@ def get_train_data(label_date, train_start_date, train_end_date, ):
         client_log_feat = get_log_feat(log_data, train_end_date)
 
         # 负样本采样, 负样本为正样本的8倍
-        frac = (pos_labels.shape[0] * 30) / neg_labels.shape[0]
-        neg_labels = neg_labels.sample(frac=frac).reset_index(drop=True)
+        frac = (pos_labels.shape[0] * 6) / neg_labels.shape[0]
+        neg_labels = neg_labels.sample(frac=frac, replace=True).reset_index(drop=True)
 
         labels = pd.concat([pos_labels, neg_labels], axis=0, ignore_index=True)
 
@@ -358,7 +364,7 @@ def get_test_data(test_date, train_start_date, train_end_date):
         test_anchor = pd.read_pickle(dump_path)
     else:
         raw_data_with_label, log_data = get_raw_data_bydate(train_start_date, train_end_date)
-        raw_data_with_label = raw_data_with_label.drop_duplicates(['客户编号', '统计日期', '开户日期'], keep='last')
+        # raw_data_with_label = raw_data_with_label.drop_duplicates(['客户编号', '统计日期', '开户日期'], keep='last')
 
         test_raw_profile_data, test_log_data, test_anchor = get_test_raw_data()
         all_raw_profile_data = pd.concat([raw_data_with_label, test_raw_profile_data], axis=0)
@@ -366,15 +372,14 @@ def get_test_data(test_date, train_start_date, train_end_date):
 
         # 特征
         # 统计用户账户的基本特征，以['客户编号', '开户日期'] group
-        client_count_basic_feat = get_basic_client_account_feat(all_raw_profile_data, test_date)
+        client_count_basic_feat = get_basic_client_account_feat(all_raw_profile_data, test_date, 'test')
         # 以['客户编号'] group 统计用户账户额外的特征
-        client_extra_feat = get_client_extra_feat(all_raw_profile_data, test_date)
+        client_extra_feat = get_client_extra_feat(all_raw_profile_data, test_date, 'test')
         # 可使用历史label的特征], 以['客户编号', '开户日期'] group
         # client_count_history_feat = get_history_client_count_feat(test_date, all_raw_profile_data)
         # 对log提特征， 以['客户编号'] group
-        client_log_feat = get_log_feat(all_raw_log_data)
+        client_log_feat = get_log_feat(all_raw_log_data, test_date, 'test')
 
-        # 负样本采样, 负样本为正样本的8倍
         test_anchor = pd.merge(test_anchor, client_count_basic_feat, how='left', on=['客户编号', '开户日期'])
         # test_anchor = pd.merge(test_anchor, client_count_history_feat, how='left', on=['客户编号', '开户日期'])
         test_anchor = pd.merge(test_anchor, client_extra_feat, how='left', on=['客户编号'])
