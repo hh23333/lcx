@@ -120,14 +120,39 @@ def clean_profile_data(train_profile_data, test_profile_data):
     # 处理客户所在地区
     # key_mode = profile_data['客户所在地区'].mode().values[0]
     # profile_data['客户所在地区'] = profile_data['客户所在地区'].fillna(key_mode)
-    porfile_data = fill_mode(profile_data, ['客户所在地区'])
+    profile_data = fill_mode_group(profile_data, '客户所在地区')
     # 处理性别
     profile_data = fill_mode_group(profile_data, '性别')
     # 处理新客户指数
     profile_data['新客户指数'].fillna(0, inplace=True)
     # 处理客户等级
     profile_data['新客户指数'].fillna(1, inplace=True)
-
+    # 处理最近活跃日期 基本无用
+    profile_data['最近活跃日期'].fillna('2015-01', inplace=True)
+    # 处理客户关系类型
+    profile_data = fill_mode_group(profile_data, '客户关系类型')
+    # 处理客户类型
+    profile_data['客户类型']=profile_data['客户类型'].apply(pd.to_numeric, errors='ignore')
+    profile_data = fill_mode_group(profile_data, '客户类型')
+    # 处理当前居住地区信息
+    profile_data = fill_mode_group(profile_data, '当前居住地区信息')
+    # 处理出生地信息
+    profile_data = fill_mode_group(profile_data, '出生地信息')
+    # 处理配偶指数 基本无用只有180个N 其他为nan
+    profile_data = fill_mode_group(profile_data, '配偶指数')
+    # 客户加入渠道
+    profile_data = fill_mode_group(profile_data, '客户加入的渠道')
+    # 内部评价指数 只有1000个'S'
+    profile_data = fill_mode_group(profile_data, '内部评价指数')
+    # 地区名称 转为概率试试？
+    profile_data = fill_mode_group(profile_data, '地区名称')
+    # 客户分段
+    profile_data = fill_mode_group(profile_data, '客户分段')
+    # 员工标识
+    profile_data = fill_mode_group(profile_data, '员工标识')
+    profile_data['活跃度指标'].fillna(0, inplace=True)
+    # 
+    profile_data.drop(labels=['地址类型', '地区代码'，'配偶指数']， axis=1, inplace=True)
 
     # 按原有数据切分train和test
     train_profile_data = profile_data.iloc[:row, :]
