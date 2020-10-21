@@ -1,5 +1,5 @@
-.cache/
-.data/
-.res/
+cache/
+data/
+res/
 .idea/
- __pycache__/
+__pycache__/
