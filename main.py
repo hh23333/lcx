@@ -40,6 +40,11 @@ train_start_date = '2015-01'
 train_end_date = '2016-03'
 test_date = '2016-04'
 
+'''
+Train set 2
+'''
+
+
 training_data = get_train_data(label_date, train_start_date, train_end_date)
 test_data = get_test_data(test_date, train_start_date, train_end_date)
 

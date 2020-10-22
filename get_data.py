@@ -1,10 +1,11 @@
-# from datetime import datetime
-# from datetime import timedelta
-# from dateutil.relativedelta import relativedelta
+from datetime import datetime
+from datetime import timedelta
+from dateutil.relativedelta import relativedelta
 import pandas as pd
 import pickle
 import os
 import numpy as np
+from utils import *
 # from dateutil.parser import parse
 import warnings
 from sklearn import preprocessing
@@ -298,22 +299,62 @@ def get_client_extra_feat(profile_with_label, train_end_date, set_label='train')
     return client_extra_feat
 
 
-def get_log_feat(train_log_data, train_end_date, set_label='train'):
+# def get_log_feat(log_data, train_end_date, set_label='train'):
+#     dump_path = './cache/%s_log_F_%s.pkl' % (set_label, train_end_date)
+#     if os.path.exists(dump_path):
+#         train_log_feat = pd.read_pickle(dump_path)
+#     else:
+#         columns = list(train_log_data.iloc[:, 2:-1].columns)
+#         log_data = log_data.sort_values(['客户编号', '统计日期'])
+#         train_log_feat = pd.DataFrame(index=train_log_data['客户编号'].drop_duplicates(), columns=columns, data=0)
+#         for col in columns:
+#             x = train_log_data.groupby(['客户编号', col]).tail(1)
+#             y = x.pivot(index='客户编号', columns=col, values='统计日期').loc[:, 1].fillna('2015-01')
+#             train_log_feat[col] = y.apply(lambda x:(pd.to_datetime(train_end_date)-pd.to_datetime(x)).days//30)
+#             train_log_feat.rename(columns={col: ''.join(['距离最近一次']+[col.replace('是否', '')]+['的月数'])})
+#         train_log_feat = train_log_feat.fillna(14)
+#         pickle.dump(train_log_feat, open(dump_path, 'wb'))
+#     return train_log_feat
+
+def get_log_feat(log_data, train_end_date, set_label='train'):
     dump_path = './cache/%s_log_F_%s.pkl' % (set_label, train_end_date)
     if os.path.exists(dump_path):
-        train_log_feat = pd.read_pickle(dump_path)
+        log_feat = pd.read_pickle(dump_path)
     else:
-        columns = list(train_log_data.iloc[:, 2:-1].columns)
-        train_log_data = train_log_data.sort_values(['客户编号', '统计日期'])
-        train_log_feat = pd.DataFrame(index=train_log_data['客户编号'].drop_duplicates(), columns=columns, data=0)
-        for col in columns:
-            x = train_log_data.groupby(['客户编号', col]).tail(1)
-            y = x.pivot(index='客户编号', columns=col, values='统计日期').loc[:, 1].fillna('2015-01')
-            train_log_feat[col] = y.apply(lambda x:(pd.to_datetime(train_end_date)-pd.to_datetime(x)).days//30)
-            train_log_feat.rename(columns={col: ''.join(['距离最近一次']+[col.replace('是否', '')]+['的月数'])})
-        train_log_feat = train_log_feat.fillna(14)
-        pickle.dump(train_log_feat, open(dump_path, 'wb'))
-    return train_log_feat
+        # valuable_columns = ['是否开办储蓄账户', '是否开办活期账户', '是否开办衍生账号', '是否开办工资帐户',
+        #                     '是否开办初级帐户', '是否开办特定帐户种类1', '是否开办特定帐户种类2',
+        #                     '是否开办特定帐户种类3', '是否开办电子账户', '是否办理基金业务', '是否办理税务业务',
+        #                     '是否办理信用卡业务', '是否办理证券业务', '是否开办家庭帐户']
+        valuable_columns = ['是否开办活期账户', '是否开办工资帐户', '是否开办特定帐户种类1', '是否开办特定帐户种类2',
+                            '是否开办特定帐户种类3', '是否开办电子账户', '是否办理基金业务', '是否办理税务业务',
+                            '是否办理信用卡业务', '是否办理证券业务']
+        log_data = log_data[['客户编号', '统计日期']+valuable_columns]
+        log_data = log_data.sort_values(['客户编号', '统计日期'])
+        log_feat = log_data.groupby('客户编号').max().reset_index()
+        user_id = log_feat[['客户编号']]
+        for col in valuable_columns:
+            log_tmp = log_data[log_data[col] == 1].drop_duplicates(subset=['客户编号'], keep='last')[
+                ['客户编号', '统计日期']].set_index('客户编号')
+            log_tmp = log_tmp['统计日期'].apply(
+                lambda x: (((pd.to_datetime(train_end_date) - pd.to_datetime(x)).days + 2) // 30)).reset_index()
+            # log_tmp = log_tmp.get_dummies(log_tmp['统计日期'], prefix=col+'dist')
+            # log_tmp.rename(columns={'统计日期': ''.join(['距离最近一次'] + [col.replace('是否', '')] + ['的月数'])})
+            log_tmp = user_id.merge(log_tmp, on='客户编号', how='left')
+            log_tmp = log_tmp.fillna(0)
+            log_tmp['reg'] = log_tmp['统计日期'].apply(cate_dist_reg)
+            log_tmp = pd.get_dummies(log_tmp['reg'], prefix=''.join(['距离最近一次'] + [col.replace('是否', '')]))
+
+            # del log_tmp['客户编号']
+            # log_tmp = log_tmp.fillna(0)
+            # columns = log_tmp.columns
+            # min_max_scale = preprocessing.MinMaxScaler()
+            # log_tmp = min_max_scale.fit_transform(log_tmp.values)
+            # log_tmp = pd.concat([user_id, pd.DataFrame(log_tmp, columns=columns)], axis=1)
+
+            log_feat = pd.concat([log_feat, log_tmp], axis=1)
+        del log_feat['统计日期']
+        pickle.dump(log_feat, open(dump_path, 'wb'))
+    return log_feat
 
 
 def get_train_data(label_date, train_start_date, train_end_date, ):
@@ -351,7 +392,7 @@ def get_train_data(label_date, train_start_date, train_end_date, ):
         labels = pd.merge(labels, client_log_feat, how='left', on=['客户编号'])
 
         # TODO 更改填充方式，使用均值会不会好一点
-        labels.fillna(0)
+        labels.fillna(0, inplace=True)
         labels.to_pickle(dump_path)
 
     return labels
@@ -386,7 +427,7 @@ def get_test_data(test_date, train_start_date, train_end_date):
         test_anchor = pd.merge(test_anchor, client_log_feat, how='left', on=['客户编号'])
 
         # TODO 更改填充方式，使用均值会不会好一点
-        test_anchor.fillna(0)
+        test_anchor.fillna(0, inplace=True)
         test_anchor.to_pickle(dump_path)
 
     return test_anchor

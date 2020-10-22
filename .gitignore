@@ -3,3 +3,5 @@ data/
 res/
 .idea/
 __pycache__/
+*.csv
+*.pkl

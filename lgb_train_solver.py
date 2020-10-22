@@ -51,7 +51,7 @@ def lgb_train(X_train1, y_train1, X_test1, sub_user_index):
         lgb_evals = lgb.Dataset(X_train[test_index], y_train[test_index], reference=lgb_train)
 
         lgbm = lgb.train(params, lgb_train, num_boost_round=50000, valid_sets=[lgb_train, lgb_evals],
-                         valid_names=['train', 'valid'], early_stopping_rounds=100, verbose_eval=200)
+                         valid_names=['train', 'valid'], early_stopping_rounds=200, verbose_eval=200)
 
         sub['label'] += lgbm.predict(X_test, num_iteration=lgbm.best_iteration) / N
         oof_preds[test_index] = lgbm.predict(X_train[test_index], num_iteration=lgbm.best_iteration)
